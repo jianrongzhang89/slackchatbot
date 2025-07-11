@@ -11,9 +11,9 @@
 - Focusing on open "forum-" channels for privacy compliance
 
 **Strategic Approach**: Phased implementation using Red Hat OpenShift to minimize initial investment while enabling enterprise-scale growth:
-- **Phase 1**: MVP with $120/month infrastructure (4 weeks)
+- **Phase 1**: MVP with $70/month infrastructure (4 weeks)
 - **Phase 2+**: Scale based on proven value and user adoption
-- **Year 1 Savings**: $34,180-36,080 (57-60% cost reduction)
+- **Year 1 Savings**: $34,300-36,590 (57-61% cost reduction)
 - **Red Hat Ecosystem**: Fully integrated with existing infrastructure
 
 ## 2. Technical Architecture
@@ -116,7 +116,7 @@ uv run mcp dev slack_qa_server.py
 - **MCP Server**: Official Python MCP SDK with FastMCP implementation
 - **Backend**: Python with Slack Bolt SDK for Python
 - **Database**: PostgreSQL with full-text search capabilities (OpenShift-hosted)
-- **Message Processing**: Background job processing with SQS/Lambda
+- **Message Processing**: Redis Queue + OpenShift Jobs (Phase 2+), In-memory queue (Phase 1)
 - **Search**: PostgreSQL full-text search (Phase 1), Self-managed Elasticsearch (Phase 3+)
 - **Analytics**: Built-in metrics collection with dashboard
 - **Infrastructure**: Red Hat OpenShift on AWS (ROSA) + AWS managed services
@@ -142,20 +142,24 @@ graph TB
     
     subgraph "AWS Infrastructure"
         subgraph "Application Layer"
-            MCP[MCP Server<br/>ECS/Lambda]
             API[Slack Bot API<br/>Bolt SDK]
-            BG[Background Jobs<br/>SQS + Lambda]
+        end
+        
+        subgraph "Storage & Monitoring"
+            S3[S3 Bucket<br/>Backups & Assets]
+            CW[CloudWatch<br/>Logs & Metrics]
+        end
+    end
+    
+    subgraph "OpenShift Infrastructure"
+        subgraph "Application Layer"
+            MCP[FastMCP Server<br/>OpenShift Pod]
+            BG[Background Jobs<br/>OpenShift Jobs]
         end
         
         subgraph "Data Layer"
-            DB[(PostgreSQL RDS<br/>Message Index)]
-            SEARCH[(OpenSearch<br/>Full-text Search)]
-            CACHE[(Redis Cache<br/>ElastiCache)]
-        end
-        
-        subgraph "Storage"
-            S3[S3 Bucket<br/>Backups & Assets]
-            CW[CloudWatch<br/>Logs & Metrics]
+            DB[(PostgreSQL<br/>Message Index)]
+            CACHE[(Redis Queue<br/>Message Processing)]
         end
     end
     
@@ -208,32 +212,33 @@ graph TB
     %% Background Processing
     FORUM --> BG
     BG --> DB
-    BG --> SEARCH
+    BG --> CACHE
     
     %% Analytics & Feedback
     API --> CW
     S --> API
     E --> API
     
-    %% Caching
-    CACHE --> MCP
+    %% Message Queue Processing
     MCP --> CACHE
+    CACHE --> BG
     
     %% Backup
     DB --> S3
     
     %% Styling
     classDef aws fill:#FF9900,stroke:#232F3E,stroke-width:2px,color:#232F3E
+    classDef openshift fill:#EE0000,stroke:#fff,stroke-width:2px,color:#fff
     classDef slack fill:#4A154B,stroke:#fff,stroke-width:2px,color:#fff
-    classDef external fill:#EE0000,stroke:#fff,stroke-width:2px,color:#fff
+    classDef external fill:#CC0000,stroke:#fff,stroke-width:2px,color:#fff
     classDef process fill:#36C5F0,stroke:#fff,stroke-width:2px,color:#fff
     classDef storage fill:#ECB22E,stroke:#fff,stroke-width:2px,color:#fff
     
-    class MCP,API,BG,DB,SEARCH,CACHE,S3,CW aws
+    class API,S3,CW aws
+    class MCP,BG,DB,CACHE openshift
     class U,S,E,FORUM slack
     class RH external
     class NLP,EXPERT,RANK,CITE,DOC,MENTION process
-    class DB,SEARCH,CACHE,S3 storage
 ```
 
 ### 3.2 User Interaction Flow
@@ -245,7 +250,7 @@ sequenceDiagram
     participant MCP as MCP Server
     participant NLP as NLP Engine
     participant DB as Database
-    participant OS as OpenSearch
+    participant Q as Redis Queue
     participant RH as Red Hat Source
     participant EX as Expert Engine
     participant C as Cache
@@ -262,17 +267,18 @@ sequenceDiagram
     MCP->>C: Check cache for similar recent questions
     C-->>MCP: Cache miss
     
-    Note over MCP,OS: Search Internal Knowledge
+    Note over MCP,DB: Search Internal Knowledge
     par Search Slack History
-        MCP->>OS: Search forum channels for "authentication system"
-        OS->>DB: Query indexed messages
-        DB-->>OS: Return relevant messages with metadata
-        OS-->>MCP: Ranked results with timestamps
+        MCP->>DB: Search forum channels for "authentication system"
+        DB-->>MCP: PostgreSQL full-text search results with timestamps
     and Expert Identification
         MCP->>EX: Find experts for "authentication" topic
         EX->>DB: Analyze user activity in auth discussions
         DB-->>EX: User engagement scores
         EX-->>MCP: Top 3 experts: [@alice, @bob, @charlie]
+    and Background Processing
+        MCP->>Q: Queue message indexing tasks
+        Q-->>MCP: Task queued for OpenShift Jobs
     end
     
     alt Internal Knowledge Found
@@ -301,11 +307,11 @@ sequenceDiagram
         S->>U: "@alice, the user has a question about authentication system"
     end
     
-    Note over MCP,C: Background Processing
-    MCP->>C: Cache successful response
+    Note over MCP,Q: Background Processing
+    MCP->>Q: Queue analytics processing
     MCP->>DB: Log interaction for analytics
     
-    Note over U,C: Success Metrics Tracked
+    Note over U,Q: Success Metrics Tracked
     rect rgb(200, 255, 200)
         Note over MCP: Metrics Updated:<br/>- Question answered<br/>- Response time logged<br/>- User satisfaction (👍/👎)<br/>- Thread length tracked
     end
@@ -339,7 +345,7 @@ sequenceDiagram
 
 ## 5. Implementation Phases
 
-### Phase 1: MVP (Weeks 1-4) - $120/month
+### Phase 1: MVP (Weeks 1-4) - $70/month
 **Goal**: Prove concept with minimal investment (10-50 users)
 - Set up OpenShift cluster (single node) and PostgreSQL
 - Implement FastMCP server with essential tools:
@@ -350,7 +356,7 @@ sequenceDiagram
 - PostgreSQL full-text search implementation
 - Basic analytics and logging
 
-### Phase 2: Growth (Weeks 5-8) - $200/month
+### Phase 2: Growth (Weeks 5-8) - $165/month
 **Goal**: Scale for broader adoption (50-200 users)
 **Trigger**: 40+ daily active users OR 80% positive feedback
 - Scale OpenShift cluster (2 nodes) with high availability
@@ -471,13 +477,16 @@ sequenceDiagram
 
 ### Infrastructure (Phase 1):
 - Red Hat OpenShift cluster (single node)
-- AWS managed services (S3, Lambda, CloudWatch)
+- PostgreSQL database (OpenShift-hosted)
+- AWS managed services (S3, CloudWatch)
 - SSL certificates and security tools
 - Red Hat SSO integration
 
 ### Infrastructure (Scaling):
 - Additional OpenShift nodes as usage grows
-- Enhanced AWS services (ElastiCache, ALB, etc.)
+- Redis Queue for message processing (Phase 2+)
+- Enhanced AWS services (ALB, enhanced monitoring)
+- Self-managed Elasticsearch (Phase 3+)
 - Advanced monitoring and backup services
 - External NLP services (Phase 4)
 
@@ -616,11 +625,11 @@ Based on typical enterprise metrics:
 
 #### Recommended Phased Budget
 - **Development**: $22,000 (one-time)
-- **Phase 1 Operations**: $120/month (MVP validation)
+- **Phase 1 Operations**: $70/month (MVP validation)
 - **Phase 2+ Operations**: Scale based on proven value
-- **Conservative Year 1 Total**: $23,920
-- **Moderate Year 1 Total**: $24,840
-- **Aggressive Year 1 Total**: $25,820
+- **Conservative Year 1 Total**: $23,410
+- **Moderate Year 1 Total**: $24,600
+- **Aggressive Year 1 Total**: $25,700
 
 #### Traditional Approach (for comparison)
 - **Development**: $25,000
@@ -628,9 +637,9 @@ Based on typical enterprise metrics:
 - **Total Year 1**: $60,000
 
 #### Savings with Phased Approach
-- **Conservative Savings**: $36,080 (60% reduction)
-- **Moderate Savings**: $35,160 (59% reduction)
-- **Aggressive Savings**: $34,180 (57% reduction)
+- **Conservative Savings**: $36,590 (61% reduction)
+- **Moderate Savings**: $35,400 (59% reduction)
+- **Aggressive Savings**: $34,300 (57% reduction)
 
 ### 12.9 Cost Scaling Considerations
 
@@ -668,15 +677,18 @@ Based on typical enterprise metrics:
 
 ### Phase 1 Implementation (Weeks 1-4):
 1. **OpenShift Deployment**: Single-node cluster with PostgreSQL
-2. **MCP Development**: Basic Q&A functionality
-3. **Early Adopter Testing**: Deploy to 10-50 users
-4. **Metrics Collection**: Gather usage and feedback data
+2. **FastMCP Server Development**: Implement core tools and resources
+3. **Message Processing**: In-memory queue for Phase 1 simplicity
+4. **Slack Integration**: Bolt SDK integration with forum channel access
+5. **Early Adopter Testing**: Deploy to 10-50 users
+6. **Metrics Collection**: Gather usage and feedback data
 
 ### Phase 2+ (Based on Success):
 1. **Evaluate Phase 1 Results**: Review metrics against trigger criteria
-2. **Scale Infrastructure**: Add resources based on demand
-3. **Enhance Features**: Add capabilities as usage grows
-4. **Continuous Improvement**: Iterate based on user feedback
+2. **Scale Infrastructure**: Add OpenShift nodes and Redis queue
+3. **Implement Background Processing**: Deploy Redis + OpenShift Jobs
+4. **Enhance FastMCP Features**: Add advanced tools and resources
+5. **Continuous Improvement**: Iterate based on user feedback
 
 ---
 
@@ -1024,7 +1036,7 @@ This approach provides the best cost optimization while maintaining enterprise-g
 **Goal**: Prove concept with minimal investment
 **Target**: 10-50 early adopters
 
-##### Infrastructure (Monthly Cost: $120)
+##### Infrastructure (Monthly Cost: $70)
 ```
 OpenShift Cluster (Small):
 - 1 worker node (t3.medium): $25/month
@@ -1033,7 +1045,6 @@ OpenShift Cluster (Small):
 
 AWS Services (Minimal):
 - S3 Storage (10GB): $5/month
-- Lambda (basic functions): $5/month
 - CloudWatch (basic): $10/month
 - Data Transfer: $10/month
 - Domain/SSL: $5/month
@@ -1061,7 +1072,7 @@ Services on OpenShift:
 **Target**: 50-200 users
 **Trigger**: 40+ daily active users OR 80% positive feedback
 
-##### Infrastructure (Monthly Cost: $200)
+##### Infrastructure (Monthly Cost: $165)
 ```
 OpenShift Cluster (Medium):
 - 2 worker nodes (t3.medium): $50/month
@@ -1070,11 +1081,12 @@ OpenShift Cluster (Medium):
 
 AWS Services (Enhanced):
 - S3 Storage (50GB): $10/month
-- Lambda (increased usage): $15/month
 - CloudWatch (enhanced): $20/month
-- ElastiCache Redis: $15/month
 - Data Transfer: $20/month
 - ALB: $25/month
+
+OpenShift Services (Enhanced):
+- Redis Queue: $15/month
 
 Services on OpenShift:
 - PostgreSQL (HA setup): $0
@@ -1173,8 +1185,8 @@ External Services:
 
 | Phase | Monthly Cost | Annual Cost | Users | Cost/User/Year |
 |-------|--------------|-------------|--------|----------------|
-| Phase 1 (MVP) | $120 | $1,440 | 10-50 | $29-144 |
-| Phase 2 (Growth) | $200 | $2,400 | 50-200 | $12-48 |
+| Phase 1 (MVP) | $70 | $840 | 10-50 | $17-84 |
+| Phase 2 (Growth) | $165 | $1,980 | 50-200 | $10-40 |
 | Phase 3 (Enterprise) | $300 | $3,600 | 200-500 | $7-18 |
 | Phase 4 (Advanced) | $400 | $4,800 | 500+ | <$10 |
 
@@ -1235,26 +1247,26 @@ External Services:
 ### Year 1 Total Cost Scenarios
 
 #### Conservative Scenario (Slow Adoption):
-- **Phase 1**: 6 months × $120 = $720
-- **Phase 2**: 6 months × $200 = $1,200
-- **Total Year 1**: $1,920 + $22,000 (development/maintenance) = **$23,920**
+- **Phase 1**: 6 months × $70 = $420
+- **Phase 2**: 6 months × $165 = $990
+- **Total Year 1**: $1,410 + $22,000 (development/maintenance) = **$23,410**
 
 #### Moderate Scenario (Expected Adoption):
-- **Phase 1**: 2 months × $120 = $240
-- **Phase 2**: 4 months × $200 = $800
+- **Phase 1**: 2 months × $70 = $140
+- **Phase 2**: 4 months × $165 = $660
 - **Phase 3**: 6 months × $300 = $1,800
-- **Total Year 1**: $2,840 + $22,000 (development/maintenance) = **$24,840**
+- **Total Year 1**: $2,600 + $22,000 (development/maintenance) = **$24,600**
 
 #### Aggressive Scenario (Rapid Adoption):
-- **Phase 1**: 1 month × $120 = $120
-- **Phase 2**: 2 months × $200 = $400
+- **Phase 1**: 1 month × $70 = $70
+- **Phase 2**: 2 months × $165 = $330
 - **Phase 3**: 3 months × $300 = $900
 - **Phase 4**: 6 months × $400 = $2,400
-- **Total Year 1**: $3,820 + $22,000 (development/maintenance) = **$25,820**
+- **Total Year 1**: $3,700 + $22,000 (development/maintenance) = **$25,700**
 
 ### Key Benefits of Phased Approach
 
-1. **Minimal Initial Investment**: Start with just $120/month
+1. **Minimal Initial Investment**: Start with just $70/month
 2. **Value-Driven Scaling**: Each phase justified by proven metrics
 3. **Risk Mitigation**: Can pause or pivot at any phase
 4. **Budget Predictability**: Clear cost structure for planning
@@ -1264,9 +1276,225 @@ External Services:
 ### Recommendation
 
 **Start with Phase 1** to minimize risk and prove value:
-- **Investment**: $120/month infrastructure + $22,000 development
+- **Investment**: $70/month infrastructure + $22,000 development
 - **Timeline**: 4 weeks to MVP
-- **Risk**: Low (total Phase 1 cost under $2,000)
+- **Risk**: Very low (total Phase 1 cost under $1,000)
 - **Upside**: Proven ROI before major investment
 
-This approach reduces initial Year 1 costs from $49,315 to as low as $23,920, while maintaining the ability to scale to full enterprise capabilities based on demonstrated value. 
+This approach reduces initial Year 1 costs from $49,315 to as low as $23,410, while maintaining the ability to scale to full enterprise capabilities based on demonstrated value. 
+
+#### **Message Processing Architecture**
+
+### Why Background Message Processing is Required
+
+The Slack Q&A system requires asynchronous message processing for several critical functions:
+
+1. **Forum Channel Indexing**: Continuously index new messages from forum channels into PostgreSQL
+2. **Expert Activity Analysis**: Process user interactions to update expert scoring algorithms
+3. **Red Hat Documentation Sync**: Periodically sync and index external documentation
+4. **Analytics Pipeline**: Process usage metrics and generate insights
+5. **Bulk Operations**: Handle large data imports and migrations without blocking the main application
+
+### Message Processing Options Comparison
+
+#### **Option 1: AWS SQS + Lambda (Original Proposal)**
+- **Cost**: $25-35/month (depending on volume)
+- **Pros**:
+  - Fully managed service with automatic scaling
+  - Built-in dead letter queues and retry mechanisms
+  - Pay-per-use pricing model
+  - Excellent integration with other AWS services
+- **Cons**:
+  - AWS vendor lock-in
+  - Cold start latency for Lambda functions
+  - Not aligned with Red Hat ecosystem
+  - Additional service to manage outside OpenShift
+
+#### **Option 2: OpenShift Jobs + Redis Queue (Recommended)**
+- **Cost**: $15/month (Redis instance)
+- **Monthly Savings**: $10-20
+- **Pros**:
+  - Native OpenShift integration using Kubernetes Jobs
+  - Consistent with Red Hat ecosystem
+  - Redis provides fast, in-memory queuing
+  - Can use OpenShift's built-in job scheduling
+  - Easier debugging and monitoring within OpenShift console
+- **Implementation**:
+```python
+# Message processing with Redis Queue
+from rq import Queue
+import redis
+
+# Connect to Redis (running in OpenShift)
+redis_conn = redis.Redis(host='redis-service', port=6379, db=0)
+queue = Queue('slack_processing', connection=redis_conn)
+
+# Enqueue background tasks
+def process_new_message(channel_id: str, message_data: dict):
+    """Process new Slack message in background"""
+    queue.enqueue(index_message_task, channel_id, message_data)
+
+def update_expert_scores(user_id: str, activity_data: dict):
+    """Update expert scoring in background"""
+    queue.enqueue(expert_analysis_task, user_id, activity_data)
+```
+
+#### **Option 3: Celery + PostgreSQL (Database Queue)**
+- **Cost**: $0 (uses existing PostgreSQL)
+- **Monthly Savings**: $25-35
+- **Pros**:
+  - Zero additional infrastructure cost
+  - Uses existing PostgreSQL database
+  - Mature, battle-tested framework
+  - Rich monitoring and management tools
+- **Cons**:
+  - Additional load on PostgreSQL database
+  - More complex setup and configuration
+  - Requires separate worker processes
+- **Implementation**:
+```python
+# Celery with PostgreSQL broker
+from celery import Celery
+
+app = Celery('slack_qa', broker='postgresql://user:pass@postgres:5432/celery')
+
+@app.task
+def index_forum_message(message_data):
+    """Background task to index Slack messages"""
+    # Process and index message
+    pass
+
+@app.task
+def analyze_expert_activity(user_data):
+    """Background task to update expert scores"""
+    # Analyze user activity patterns
+    pass
+```
+
+#### **Option 4: Apache Kafka (Enterprise Scale)**
+- **Cost**: $50-80/month (managed Kafka)
+- **Pros**:
+  - Extremely high throughput and durability
+  - Built-in partitioning and replication
+  - Perfect for enterprise event streaming
+  - Long-term data retention capabilities
+- **Cons**:
+  - Overkill for initial phases
+  - Higher operational complexity
+  - Significant cost increase
+  - Steep learning curve
+
+#### **Option 5: Direct Processing (No Queue)**
+- **Cost**: $0
+- **Pros**:
+  - Simplest implementation
+  - No additional infrastructure
+  - Immediate processing
+- **Cons**:
+  - Blocks main application threads
+  - No retry mechanisms
+  - Poor scalability
+  - Risk of data loss during failures
+
+### Recommended Phased Approach
+
+#### **Phase 1: Direct Processing + Simple Queue**
+- **Implementation**: Direct processing for MVP with simple in-memory queue
+- **Cost**: $0
+- **Rationale**: Minimal complexity, prove concept first
+```python
+# Simple in-memory processing for Phase 1
+import asyncio
+from asyncio import Queue
+
+message_queue = Queue()
+
+async def background_processor():
+    """Simple background message processor"""
+    while True:
+        message = await message_queue.get()
+        await process_message(message)
+        message_queue.task_done()
+```
+
+#### **Phase 2: Redis Queue + OpenShift Jobs**
+- **Implementation**: Redis-based queuing with OpenShift Jobs
+- **Cost**: $15/month
+- **Rationale**: Scalable, reliable, OpenShift-native
+```yaml
+# OpenShift Job for message processing
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: slack-message-processor
+spec:
+  template:
+    spec:
+      containers:
+      - name: processor
+        image: slack-qa-processor:latest
+        env:
+        - name: REDIS_URL
+          value: "redis://redis-service:6379"
+      restartPolicy: OnFailure
+```
+
+#### **Phase 3: Celery + Redis (Hybrid)**
+- **Implementation**: Celery for complex workflows, Redis for simple queuing
+- **Cost**: $15/month
+- **Rationale**: Best of both worlds - sophisticated task management with reliable queuing
+
+#### **Phase 4: Event-Driven Architecture**
+- **Implementation**: Full event streaming with Kafka or Redis Streams
+- **Cost**: $30-50/month
+- **Rationale**: Enterprise-grade event processing for advanced analytics
+
+### Updated Cost Comparison
+
+| Phase | Processing Solution | Monthly Cost | Benefits |
+|-------|-------------------|--------------|----------|
+| Phase 1 | In-Memory Queue | $0 | Simple, fast development |
+| Phase 2 | Redis + OpenShift Jobs | $15 | Reliable, OpenShift-native |
+| Phase 3 | Celery + Redis | $15 | Advanced workflow management |
+| Phase 4 | Kafka/Redis Streams | $30-50 | Enterprise event streaming |
+
+**Original AWS Approach**: $25-35/month consistently
+
+**OpenShift Approach Savings**: $10-20/month with better ecosystem alignment
+
+### Final Recommendation
+
+**Start with Redis Queue + OpenShift Jobs** for the following reasons:
+
+1. **Cost Effective**: $15/month vs $25-35/month for AWS SQS/Lambda
+2. **OpenShift Native**: Leverages existing Kubernetes job scheduling
+3. **Red Hat Ecosystem**: Consistent with infrastructure choice
+4. **Scalable**: Can handle enterprise load with proper configuration
+5. **Observable**: Integrated monitoring with OpenShift console
+6. **Flexible**: Easy to upgrade to more sophisticated solutions later
+
+This approach aligns perfectly with our OpenShift-first strategy while providing significant cost savings and maintaining enterprise-grade reliability.
+
+### **Updated Architecture Summary**
+
+The revised architecture leverages **Redis Queue + OpenShift Jobs** instead of AWS SQS/Lambda, providing:
+
+#### **Technical Benefits:**
+- **OpenShift Native**: All processing runs within the Red Hat ecosystem
+- **Cost Effective**: $15/month vs $25-35/month for AWS alternatives
+- **Scalable**: Kubernetes Jobs automatically scale based on queue load
+- **Observable**: Built-in monitoring through OpenShift console
+- **Reliable**: Redis provides durable message queuing with persistence
+
+#### **Implementation Advantages:**
+- **Simplified Architecture**: Everything runs in OpenShift (FastMCP + PostgreSQL + Redis)
+- **Developer Friendly**: Single environment for development and debugging
+- **Enterprise Ready**: Proven Redis + Kubernetes pattern for message processing
+- **Flexible**: Easy migration path to more sophisticated queuing (Kafka) if needed
+
+#### **Cost Impact:**
+- **Phase 1**: $70/month (50% reduction from original $120/month)
+- **Year 1 Savings**: $34,300-36,590 total cost reduction
+- **Long-term**: Consistent savings while maintaining enterprise capabilities
+
+This Redis + OpenShift approach transforms the solution into a truly Red Hat-native implementation, perfectly aligned with your infrastructure strategy while delivering substantial cost savings. 
