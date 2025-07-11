@@ -19,17 +19,103 @@
 ## 2. Technical Architecture
 
 ### Core Components:
-1. **MCP Server**: Main application handling Q&A logic and Slack integration
-2. **Slack Integration Layer**: Bot API integration for message processing and responses
+1. **MCP Server**: FastMCP-based application handling Q&A logic and protocol management
+2. **Slack Integration Layer**: Slack Bolt SDK for bot API integration and message processing
 3. **Message Database**: Indexed storage of forum channel messages with metadata
 4. **Expert Discovery Engine**: Analysis system for identifying subject matter experts
 5. **External Documentation Connector**: Integration with Red Hat source.redhat.com
 6. **Analytics & Metrics Tracker**: Usage and success metrics collection
 
+### MCP Server Implementation:
+
+#### **FastMCP Framework** (Official Python MCP SDK)
+- **Framework**: Anthropic's official FastMCP implementation
+- **Protocol Handling**: Automatic MCP protocol compliance and message routing
+- **Transport Support**: stdio, SSE, and Streamable HTTP for flexible deployment
+- **Built-in Features**: Resource management, tool execution, prompt handling, and lifecycle management
+
+#### **Server Architecture**
+```python
+from mcp.server.fastmcp import FastMCP
+
+# Create the MCP server
+mcp = FastMCP("Slack Q&A Bot")
+
+# Core Q&A functionality
+@mcp.tool()
+def search_slack_history(query: str, channel_filter: str = None) -> str:
+    """Search Slack forum channels for relevant discussions"""
+    # Search PostgreSQL database of indexed forum messages
+    # Apply relevance ranking based on recency and quality
+    return search_results_with_citations
+
+@mcp.tool()
+def find_subject_experts(topic: str, activity_threshold: int = 5) -> str:
+    """Identify subject matter experts based on forum activity"""
+    # Analyze user participation and reaction patterns
+    # Return ranked list of experts with availability indicators
+    return expert_recommendations
+
+@mcp.resource("slack://forum/{channel_id}")
+def get_channel_context(channel_id: str) -> str:
+    """Retrieve recent context from specific forum channels"""
+    # Fetch and format recent channel discussions
+    return channel_summary
+
+@mcp.tool()
+def search_redhat_docs(query: str, doc_type: str = "all") -> str:
+    """Search Red Hat source.redhat.com documentation"""
+    # Interface with Red Hat documentation API
+    # Return relevant documentation links and summaries
+    return documentation_results
+
+@mcp.prompt()
+def generate_expert_introduction(expert_name: str, topic: str) -> str:
+    """Generate contextual expert introduction for @mentions"""
+    return f"@{expert_name}, we have a question about {topic} that matches your expertise..."
+```
+
+#### **Key Benefits for Our Implementation**
+- **Rapid Development**: FastMCP abstracts protocol complexities, accelerating development
+- **OpenShift Native**: Containerizes easily for OpenShift deployment
+- **Slack Integration**: Clean separation between MCP logic and Slack Bolt SDK
+- **Scalable Architecture**: Supports horizontal scaling and multiple transport methods
+- **Built-in Analytics**: Native support for logging, metrics, and monitoring
+- **Context Management**: Sophisticated context handling for conversation continuity
+
+#### **Development Workflow**
+1. **Phase 1**: Basic FastMCP server with essential tools (search, experts, docs)
+2. **Phase 2**: Enhanced resource management and caching strategies
+3. **Phase 3**: Advanced analytics tools and performance optimization
+4. **Phase 4**: Machine learning integration and predictive capabilities
+
+#### **Installation & Deployment**
+```bash
+# Install the official MCP SDK
+pip install "mcp[cli]"
+
+# Or with uv (recommended for faster package management)
+uv add "mcp[cli]"
+
+# Development and testing
+uv run mcp dev slack_qa_server.py
+
+# Production deployment on OpenShift
+# The FastMCP server will be containerized and deployed as a pod
+# with configurable transport (stdio/SSE/Streamable HTTP)
+```
+
+#### **FastMCP Server Benefits for OpenShift Deployment**
+- **Container Ready**: FastMCP applications containerize seamlessly
+- **Multiple Transports**: Supports stdio, SSE, and Streamable HTTP for different deployment scenarios
+- **Health Checks**: Built-in health monitoring for Kubernetes/OpenShift readiness probes
+- **Configuration Management**: Environment-based configuration for different deployment stages
+- **Horizontal Scaling**: FastMCP servers can be scaled horizontally across multiple pods
+
 ### Technology Stack:
-- **Backend**: Python with MCP SDK
+- **MCP Server**: Official Python MCP SDK with FastMCP implementation
+- **Backend**: Python with Slack Bolt SDK for Python
 - **Database**: PostgreSQL with full-text search capabilities (OpenShift-hosted)
-- **Slack Integration**: Slack Bolt SDK for Python
 - **Message Processing**: Background job processing with SQS/Lambda
 - **Search**: PostgreSQL full-text search (Phase 1), Self-managed Elasticsearch (Phase 3+)
 - **Analytics**: Built-in metrics collection with dashboard
@@ -256,34 +342,49 @@ sequenceDiagram
 ### Phase 1: MVP (Weeks 1-4) - $120/month
 **Goal**: Prove concept with minimal investment (10-50 users)
 - Set up OpenShift cluster (single node) and PostgreSQL
-- Implement basic Slack bot integration
-- Create PostgreSQL full-text search
-- Build basic Red Hat source.redhat.com connector
-- Simple expert identification and basic analytics
+- Implement FastMCP server with essential tools:
+  - `search_slack_history()` - Basic forum channel search
+  - `find_subject_experts()` - Simple expert identification
+  - `search_redhat_docs()` - Red Hat documentation integration
+- Integrate with Slack using Bolt SDK
+- PostgreSQL full-text search implementation
+- Basic analytics and logging
 
 ### Phase 2: Growth (Weeks 5-8) - $200/month
 **Goal**: Scale for broader adoption (50-200 users)
 **Trigger**: 40+ daily active users OR 80% positive feedback
 - Scale OpenShift cluster (2 nodes) with high availability
-- Add advanced caching with Redis
-- Enhance search algorithms and analytics dashboard
-- Implement improved expert scoring
+- Enhanced FastMCP server features:
+  - `get_channel_context()` resource for channel summaries
+  - `generate_expert_introduction()` prompt for better @mentions
+  - Advanced caching with Redis integration
+  - Improved expert scoring algorithms
+- Enhanced analytics dashboard with FastMCP built-in metrics
+- Performance optimization and response time improvements
 
 ### Phase 3: Enterprise (Months 3-6) - $300/month
 **Goal**: Enterprise-grade capabilities (200-500 users)
 **Trigger**: 150+ daily active users OR department-wide adoption
 - Scale OpenShift cluster (3 nodes) with auto-scaling
-- Deploy self-managed Elasticsearch for advanced search
-- Add comprehensive monitoring and alerting
-- Implement advanced analytics and multi-region backup
+- Advanced FastMCP server capabilities:
+  - Self-managed Elasticsearch integration for enhanced search
+  - Advanced resource templates for dynamic content
+  - Context-aware completion suggestions
+  - Comprehensive monitoring with FastMCP built-in observability
+- Multi-region backup and disaster recovery
+- Advanced analytics with predictive insights
 
 ### Phase 4: Advanced Features (Months 6-12) - $400/month
 **Goal**: Advanced AI and enterprise features (500+ users)
 **Trigger**: 400+ daily active users OR proven ROI
 - Scale OpenShift cluster (4 nodes) for enterprise load
-- Add advanced NLP and machine learning capabilities
-- Implement predictive analytics and custom dashboards
-- Integration with additional Red Hat services
+- Advanced AI-powered FastMCP features:
+  - Machine learning-enhanced expert recommendations
+  - Predictive context suggestions using FastMCP sampling
+  - Advanced NLP integration with AWS Comprehend
+  - Custom dashboard creation with FastMCP analytics
+- Integration with additional Red Hat services and APIs
+- Enterprise security features and compliance monitoring
 
 ## 6. Success Metrics & Monitoring
 
